@@ -44,10 +44,11 @@ class QuillNativeBridgeWindows extends QuillNativeBridgePlatform {
   /// Refer to [Windows GetClipboardData() docs](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclipboarddata)
   @override
   Future<String?> getClipboardHtml() async {
-    if (OpenClipboard(NULL) == FALSE) {
+    final openResult = OpenClipboard(null);
+    if (!openResult.value) {
       assert(
         false,
-        'Unknown error while opening the clipboard. Error code: ${GetLastError()}',
+        'Unknown error while opening the clipboard. Error code: ${openResult.error}',
       );
       return null;
     }
@@ -60,32 +61,33 @@ class QuillNativeBridgeWindows extends QuillNativeBridgePlatform {
         return null;
       }
 
-      if (IsClipboardFormatAvailable(htmlFormatId) == FALSE) {
+      if (!IsClipboardFormatAvailable(htmlFormatId).value) {
         return null;
       }
 
-      final clipboardDataHandle = GetClipboardData(htmlFormatId);
-      if (clipboardDataHandle == NULL) {
+      final clipboardDataResult = GetClipboardData(htmlFormatId);
+      final clipboardDataHandle = clipboardDataResult.value;
+      if (!clipboardDataHandle.isValid) {
         assert(
           false,
-          'Failed to get clipboard data. Error code: ${GetLastError()}',
+          'Failed to get clipboard data. Error code: ${clipboardDataResult.error}',
         );
         return null;
       }
 
-      final clipboardDataPointer = Pointer.fromAddress(clipboardDataHandle);
-      final lockedMemoryPointer = GlobalLock(clipboardDataPointer);
+      final lockedMemoryResult = GlobalLock(HGLOBAL(clipboardDataHandle));
+      final lockedMemoryPointer = lockedMemoryResult.value;
       if (lockedMemoryPointer == nullptr) {
         assert(
           false,
-          'Failed to lock global memory. Error code: ${GetLastError()}',
+          'Failed to lock global memory. Error code: ${lockedMemoryResult.error}',
         );
         return null;
       }
 
       final windowsHtmlWithMetadata =
           lockedMemoryPointer.cast<Utf8>().toDartString();
-      GlobalUnlock(clipboardDataPointer);
+      GlobalUnlock(HGLOBAL(clipboardDataHandle));
 
       // Strip comments/headers at the start of the HTML as they can cause
       // issues while parsing the HTML
@@ -102,10 +104,11 @@ class QuillNativeBridgeWindows extends QuillNativeBridgePlatform {
   /// Refer to [Windows SetClipboardData() docs](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setclipboarddata)
   @override
   Future<void> copyHtmlToClipboard(String html) async {
-    if (OpenClipboard(NULL) == FALSE) {
+    final openResult = OpenClipboard(null);
+    if (!openResult.value) {
       assert(
         false,
-        'Unknown error while opening the clipboard. Error code: ${GetLastError()}',
+        'Unknown error while opening the clipboard. Error code: ${openResult.error}',
       );
       return;
     }
@@ -114,10 +117,11 @@ class QuillNativeBridgeWindows extends QuillNativeBridgePlatform {
     final htmlPointer = windowsClipboardHtml.toNativeUtf8();
 
     try {
-      if (EmptyClipboard() == FALSE) {
+      final emptyResult = EmptyClipboard();
+      if (!emptyResult.value) {
         assert(
           false,
-          'Failed to empty the clipboard. Error code: ${GetLastError()}',
+          'Failed to empty the clipboard. Error code: ${emptyResult.error}',
         );
         return;
       }
@@ -135,21 +139,23 @@ class QuillNativeBridgeWindows extends QuillNativeBridgePlatform {
       final unitSize = sizeOf<Uint8>();
       final htmlSize = (htmlPointer.length + 1) * unitSize;
 
-      final clipboardMemoryHandle = GlobalAlloc(GMEM_MOVEABLE, htmlSize);
+      final allocResult = GlobalAlloc(GMEM_MOVEABLE, htmlSize);
+      final clipboardMemoryHandle = allocResult.value;
       if (clipboardMemoryHandle == nullptr) {
         assert(
           false,
-          'Failed to allocate memory for the clipboard content. Error code: ${GetLastError()}',
+          'Failed to allocate memory for the clipboard content. Error code: ${allocResult.error}',
         );
         return;
       }
 
-      final lockedMemoryPointer = GlobalLock(clipboardMemoryHandle);
+      final lockResult = GlobalLock(clipboardMemoryHandle);
+      final lockedMemoryPointer = lockResult.value;
       if (lockedMemoryPointer == nullptr) {
         GlobalFree(clipboardMemoryHandle);
         assert(
           false,
-          'Failed to lock global memory. Error code: ${GetLastError()}',
+          'Failed to lock global memory. Error code: ${lockResult.error}',
         );
         return;
       }
@@ -164,7 +170,7 @@ class QuillNativeBridgeWindows extends QuillNativeBridgePlatform {
       }
 
       // Add a null terminator for HTML (necessary for proper string handling)
-      (targetMemoryPointer + htmlPointer.length).value = NULL;
+      (targetMemoryPointer + htmlPointer.length).value = 0;
 
       // According to Windows docs in https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setclipboarddata#parameters
       // Should not call GlobalFree() when SetClipboardData() success
@@ -172,12 +178,13 @@ class QuillNativeBridgeWindows extends QuillNativeBridgePlatform {
 
       GlobalUnlock(clipboardMemoryHandle);
 
-      if (SetClipboardData(htmlFormatId, clipboardMemoryHandle.address) ==
-          NULL) {
+      final setResult =
+          SetClipboardData(htmlFormatId, HANDLE(clipboardMemoryHandle));
+      if (!setResult.value.isValid) {
         GlobalFree(clipboardMemoryHandle);
         assert(
           false,
-          'Failed to set the clipboard data: ${GetLastError()}',
+          'Failed to set the clipboard data: ${setResult.error}',
         );
       }
     } finally {
@@ -219,10 +226,10 @@ class QuillNativeBridgeWindows extends QuillNativeBridgePlatform {
 
   @override
   Future<void> openGalleryApp() async {
-    final uriPtr = TEXT('ms-photos:');
-    final openPtr = 'open'.toNativeUtf16();
+    final uriPtr = 'ms-photos:'.toPcwstr();
+    final openPtr = 'open'.toPcwstr();
 
-    ShellExecute(NULL, openPtr, uriPtr, nullptr, nullptr, SW_SHOWNORMAL);
+    ShellExecute(null, openPtr, uriPtr, null, null, SW_SHOWNORMAL);
 
     free(uriPtr);
     free(openPtr);
